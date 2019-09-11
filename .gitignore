@@ -1,0 +1,8 @@
+﻿################################################################################
+# This .gitignore file was automatically created by Microsoft(R) Visual Studio.
+################################################################################
+
+/RevManCovidenceValidation/packages
+/RevManCovidenceValidation/obj/Debug
+/RevManCovidenceValidation/bin/Debug
+/RevManCovidenceValidation/.vs/RevManCovidenceValidation/v16
