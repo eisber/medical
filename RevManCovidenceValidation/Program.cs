@@ -17,10 +17,10 @@ namespace RevManCovidenceValidation
         static void Main(string[] args)
         {
             // RevManSummaryToCSV.ExtractOutcomes();
-            RevManSummaryToCSV.Process();
             // EnrichedRevManToSubgroup.Process_THA_TKA();
-            
-            
+            RevManSummaryToCSV.Process();
+
+
             //    EnrichedRevManToSubgroup.Process_Infiltration();
 
 

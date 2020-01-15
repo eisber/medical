@@ -49,8 +49,11 @@ namespace RevManCovidenceValidation
         {
             var thaTkaData = ParseThaTkaData().ToList();
 
-            var revmanInput = @"C:\Users\marcozo\OneDrive\Cris\201909 HSS Consensus PNB\PNB versus no PNB 20191102 clean.rm5";
-            var revmanOutput = @"C:\Users\marcozo\OneDrive\Cris\201909 HSS Consensus PNB\PNB versus no PNB 20191115 all.rm5";
+            var revmanInput = @"C:\Users\marcozo\OneDrive\Cris\201909 HSS Consensus PNB\PNB versus no PNB 20191118 clean dropped.rm5";
+            var revmanOutput = @"C:\Users\marcozo\OneDrive\Cris\201909 HSS Consensus PNB\PNB versus no PNB 20200115 all.rm5";
+            //var revmanInput = @"C:\Users\marcozo\OneDrive\Cris\201909 HSS Consensus PNB\PNB versus no PNB 20191102 clean.rm5";
+            //var revmanOutput = @"C:\Users\marcozo\OneDrive\Cris\201909 HSS Consensus PNB\PNB versus no PNB 20191102 all.rm5";
+
             var revmanXml = XDocument.Parse(File.ReadAllText(revmanInput));
 
             var subgroup = new List<Tuple<string, string>>();
@@ -71,13 +74,47 @@ namespace RevManCovidenceValidation
 
                 var nameOnly = Regex.Match(id, "-([^-]+-[0-9a-z]+$)").Groups[1].Value;
                 var newId = "STD-" + nameOnly;
+                var year = int.Parse(Regex.Match(id, "[0-9]{4}").Groups[0].Value);
 
+                // split by study type
                 var postfix = " | " + (observational.Contains(id) ? "Observational" : "RCT");
 
+                // split by year
+                var yearPrefix = (year <= 2016 ? "2016" : "2017") + " ";
+
+                // split by length of stay
+                var losData = revmanXml.XPathSelectElements("//CONT_DATA")
+                    .Where(e => e.Attribute("STUDY_ID").Value == id)
+                    .Where(e => e.Parent.Element("NAME").Value == "Length of hospital stay (LOS)")
+                    .ToList();
+                string losPrefix = null; 
+                if (losData.Count > 0)
+                {
+                    var minimumLos = losData
+                        .SelectMany(e => new[] { e.Attribute("MEAN_1").Value, e.Attribute("MEAN_2").Value })
+                        .Select(e => double.Parse(e))
+                        .Min();
+
+                    losPrefix = "LOS " + (minimumLos < 3 ? "-3" : "3-") + " ";
+                }
+
                 if (id.Contains("-H-"))
+                {
                     subgroup.Add(Tuple.Create(newId, "THA" + postfix));
+                    subgroup.Add(Tuple.Create(newId, yearPrefix + "THA"));
+                    if (losPrefix != null)
+                       subgroup.Add(Tuple.Create(newId, losPrefix + "THA"));
+                }
                 if (id.Contains("-K-"))
+                {
                     subgroup.Add(Tuple.Create(newId, "TKA" + postfix));
+                    subgroup.Add(Tuple.Create(newId, yearPrefix + "TKA"));
+                    if (losPrefix != null)
+                        subgroup.Add(Tuple.Create(newId, losPrefix + "TKA"));
+                }
+
+
+
 
                 // H K Type multiple Comp CNB SA or GA vs SA or GA vs X Memtsoudis 2016
 
@@ -85,24 +122,47 @@ namespace RevManCovidenceValidation
                 var left = match.Groups[1].Value;
                 var right = match.Groups[2].Value + match.Groups[3].Value;
 
-                //AddSubgroup(outcome, data, "PNB vs no-PNB", none);
-                //AddSubgroup(outcome, data, "PNB vs infiltration", rightOnly);
-                //AddSubgroup(outcome, data, "PNB + infiltration vs no-infiltration", leftOnly);
-                //AddSubgroup(outcome, data, "PNB + infiltration vs infiltration", both);
+                // Infiltration groups
+                //if (Regex.Match(left, "(LIA|PAI)").Success && Regex.Match(right, "(LIA|PAI)").Success)
+                //    subgroup.Add(Tuple.Create(newId, "PNB + infiltration vs infiltration" + postfix));
+                //else
+                //{
+                //    if (Regex.Match(left, "(LIA|PAI)").Success)
+                //        subgroup.Add(Tuple.Create(newId, "PNB + infiltration vs no-infiltration" + postfix));
+                //    else
+                //    {
+                //        if (Regex.Match(right, "(LIA|PAI)").Success)
+                //            subgroup.Add(Tuple.Create(newId, "PNB vs infiltration" + postfix));
+                //        else
+                //            subgroup.Add(Tuple.Create(newId, "PNB vs no-infiltration" + postfix));
+                //    }
+                //}
 
-                if (Regex.Match(left, "(LIA|PAI)").Success && Regex.Match(right, "(LIA|PAI)").Success)
-                    subgroup.Add(Tuple.Create(newId, "PNB + infiltration vs infiltration" + postfix));
-                else
+                var interventions = (match.Groups[1].Value + "-" + match.Groups[2].Value +"-" + match.Groups[3].Value).Split('-').ToHashSet();
+                var neuraxial = new HashSet<string> { "SA", "EA", "CSE", "CEI" };
+
+                // GA any(+NA maybe)
+                // GA only(no NA)
+                // GA + NA
+                // NA only(no GA)
+                if (interventions.Contains("GA"))
                 {
-                    if (Regex.Match(left, "(LIA|PAI)").Success)
-                        subgroup.Add(Tuple.Create(newId, "PNB + infiltration vs no-infiltration" + postfix));
-                    else
-                    {
-                        if (Regex.Match(right, "(LIA|PAI)").Success)
-                            subgroup.Add(Tuple.Create(newId, "PNB vs infiltration" + postfix));
-                        else
-                            subgroup.Add(Tuple.Create(newId, "PNB vs no-infiltration" + postfix));
-                    }
+                    subgroup.Add(Tuple.Create(newId, "GA"));
+
+                    if (neuraxial.All(n => !interventions.Contains(n)))
+                       subgroup.Add(Tuple.Create(newId, "GA only"));
+
+                    if (neuraxial.Any(n => interventions.Contains(n)))
+                       subgroup.Add(Tuple.Create(newId, "GA + NA"));
+                }
+                else
+                    if (neuraxial.Any(n => interventions.Contains(n)))
+                        subgroup.Add(Tuple.Create(newId, "NA only"));
+
+                if (interventions.Contains("VARIOUS"))
+                {
+                    subgroup.Add(Tuple.Create(newId, "GA"));
+                    subgroup.Add(Tuple.Create(newId, "GA + NA"));
                 }
 
                 study.SetAttributeValue("ID", newId);
@@ -113,44 +173,105 @@ namespace RevManCovidenceValidation
                     studyId.SetAttributeValue("STUDY_ID", newId);
             }
 
+            subgroup = subgroup.Distinct().ToList();
+
             int outcomeCount = 128; // revmanXml.XPathSelectElements($"//DICH_OUTCOME").Count() +
-                //revmanXml.XPathSelectElements($"//CONT_OUTCOME").Count()
-                //+ 1;
+                                    //revmanXml.XPathSelectElements($"//CONT_OUTCOME").Count()
+                                    //+ 1;
+
+            var cleanOutcomes = new List<XElement>();
 
             // introduce subgroups
             foreach (var type in new[] { "DICH", "CONT" })
             {
                 var newOutcomes = new List<XElement>();
 
+                cleanOutcomes.AddRange(revmanXml.XPathSelectElements($"//{type}_OUTCOME"));
+
                 // All, THA, TKA, Infiltration, ...
-                foreach (var group in new []
+                foreach (var expandedGroup in new []
                 {
                     new
                     {
-                        Name = "THA/TKA",
+                        Name = "THA",
                         Prefixes = new [] {
-                            "THA",
-                            "TKA"
+                            "THA"
                         }
                     },
                     new
                     {
-                        Name = "Infiltration",
+                        Name = "TKA",
                         Prefixes = new [] {
-                            "PNB + infiltration vs infiltration",
-                            "PNB + infiltration vs no-infiltration",
-                            "PNB vs infiltration",
-                            "PNB vs no-infiltration"
+                            "TKA"
+                        }
+                    },
+                    //new
+                    //{
+                    //    Name = "Infiltration",
+                    //    Prefixes = new [] {
+                    //        "PNB + infiltration vs infiltration",
+                    //        "PNB + infiltration vs no-infiltration",
+                    //        "PNB vs infiltration",
+                    //        "PNB vs no-infiltration"
+                    //    }
+                    //},
+                    new
+                    {
+                        Name = "GA/NA",
+                        Prefixes = new[]
+                        {
+                            "GA",
+                            "GA only",
+                            "GA + NA",
+                            "NA only"
+                        }
+                    },
+                    new
+                    {
+                        Name = "<= 2016",
+                        Prefixes = new[]
+                        {
+                            "2016 THA",
+                            "2016 TKA"
+                        }
+                    },
+                    new
+                    {
+                        Name = "> 2017",
+                        Prefixes = new[]
+                        {
+                            "2017 THA",
+                            "2017 TKA"
+                        }
+                    },
+                    new
+                    {
+                        Name = "LOS >= 3",
+                        Prefixes = new[]
+                        {
+                            "LOS 3- THA",
+                            "LOS 3- TKA"
+                        }
+                    },
+                    new
+                    {
+                        Name = "LOS < 3",
+                        Prefixes = new[]
+                        {
+                            "LOS -3 THA",
+                            "LOS -3 TKA"
                         }
                     }
                 })
                 {
                     // THA + TKA, THA, TK,...
                     //foreach (var expandedGroup in new[] { group }.Union(group.Prefixes.Select(p => new { Name = p, Prefixes = new[] { p } })))
-                    foreach (var expandedGroup in group.Prefixes.Select(p => new { Name = p, Prefixes = new[] { p } }))
+                    // foreach (var expandedGroup in group.Prefixes.Select(p => new { Name = p, Prefixes = new[] { p } }))
+                    // foreach (var expandedGroup in group)
                     {
                         foreach (var cleanOutcome in revmanXml.XPathSelectElements($"//{type}_OUTCOME"))
                         {
+
                             var outcome = new XElement(cleanOutcome);
                             outcomeCount++;
                             outcome.Attribute("ID").Value = $"CMP-001.{outcomeCount:D2}";
@@ -222,6 +343,12 @@ namespace RevManCovidenceValidation
 
                 foreach (var newOutcome in newOutcomes)
                     revmanXml.XPathSelectElements($"//{type}_OUTCOME").First().AddAfterSelf(newOutcome);
+            }
+
+            foreach (var cleanOutcome in cleanOutcomes)
+            {
+                // update the name for the source outcome
+                cleanOutcome.XPathSelectElement("./NAME").Value = cleanOutcome.XPathSelectElement("./NAME").Value + " | Total";
             }
 
             revmanXml.Save(revmanOutput);
