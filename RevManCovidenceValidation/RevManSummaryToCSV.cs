@@ -14,11 +14,11 @@ namespace RevManCovidenceValidation
     {
         public static void Process()
         {
-            using (var csv = new StreamWriter(@"C:\Users\marcozo\OneDrive\Cris\201909 HSS Consensus PNB\PNB versus no PNB 20191102 summary.csv"))
+            using (var csv = new StreamWriter(@"C:\Users\marcozo\OneDrive\Cris\201909 HSS Consensus PNB\PNB versus no PNB 20200115 summary.csv"))
             {
                 csv.WriteLine("outcome,subgroup,n_studies,OR,CI_lower,CI_upper,I2,heterogeneity_p_value,OR_p_value,events1,total1,events2,total2");
 
-                ProcessFile(csv, @"C:\Users\marcozo\OneDrive\Cris\201909 HSS Consensus PNB\PNB versus no PNB 20191115 all.rm5", true);
+                ProcessFile(csv, @"C:\Users\marcozo\OneDrive\Cris\201909 HSS Consensus PNB\PNB versus no PNB 20200115 all.rm5", true);
 
                 // ProcessFile(csv, @"C:\Users\marcozo\OneDrive\Cris\201909 HSS Consensus PNB\PNB versus no PNB 20191102 THA TKA.rm5", true);
                 // ProcessFile(csv, @"C:\Users\marcozo\OneDrive\Cris\201909 HSS Consensus PNB\PNB versus no PNB 20191102 Infiltration.rm5", false);
