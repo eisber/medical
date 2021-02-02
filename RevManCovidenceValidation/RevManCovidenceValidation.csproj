@@ -185,6 +185,7 @@
     </Reference>
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="CsvOutcome.cs" />
     <Compile Include="DataValidator.cs" />
     <Compile Include="DataValidator.Step2.cs" />
     <Compile Include="DataValidator.Step3.cs" />
@@ -194,6 +195,7 @@
     <Compile Include="Properties\AssemblyInfo.cs" />
     <Compile Include="RevManSummaryToCSV.cs" />
     <Compile Include="Study.cs" />
+    <Compile Include="StudyToEndNote.cs" />
   </ItemGroup>
   <ItemGroup>
     <None Include="App.config" />

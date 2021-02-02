@@ -44,13 +44,205 @@ namespace RevManCovidenceValidation
                 }
             }
         }
- 
-        public static void Process_THA_TKA()
+
+        public static void Process_Observational_RCT()
         {
             var thaTkaData = ParseThaTkaData().ToList();
 
-            var revmanInput = @"C:\Users\marcozo\OneDrive\Cris\201909 HSS Consensus PNB\PNB versus no PNB 20191118 clean dropped.rm5";
-            var revmanOutput = @"C:\Users\marcozo\OneDrive\Cris\201909 HSS Consensus PNB\PNB versus no PNB 20200115 all.rm5";
+            var revmanInput = @"C:\Users\marcozo\OneDrive\Cris\201909 HSS Consensus PNB\PNB versus no PNB 20200827 Update.rm5";
+            var observationVsRCTOutput = @"C:\Users\marcozo\OneDrive\Cris\201909 HSS Consensus PNB\study_observational_rct.csv";
+            //var revmanInput = @"C:\Users\marcozo\OneDrive\Cris\201909 HSS Consensus PNB\PNB versus no PNB 20191102 clean.rm5";
+            //var revmanOutput = @"C:\Users\marcozo\OneDrive\Cris\201909 HSS Consensus PNB\PNB versus no PNB 20191102 all.rm5";
+
+            var revmanXml = XDocument.Parse(File.ReadAllText(revmanInput));
+
+            var observational = revmanXml.XPathSelectElements("//QUALITY_ITEM")
+                .Where(qualityItem => qualityItem.XPathSelectElement("./NAME").Value ==
+                    "Observational Study: Failure to develop and apply appropriate eligibility criteria")
+                .SelectMany(qualityItem =>
+                    qualityItem.XPathSelectElements(".//QUALITY_ITEM_DATA_ENTRY")
+                        .Select(e => e.Attribute("STUDY_ID").Value))
+                .ToHashSet();
+
+            var observationalStudies = new HashSet<string>();
+            var rctStudies = new HashSet<string>();
+
+            foreach (var study in revmanXml.XPathSelectElements("//STUDY"))
+            {
+                var id = study.Attribute("ID").Value;
+                if (!(id.StartsWith("STD-H-") || id.StartsWith("STD-K-")))
+                    continue;
+
+                var nameOnly = Regex.Match(id, "-([^-]+-[0-9a-z]+$)").Groups[1].Value;
+                var newId = "STD-" + nameOnly;
+                var year = int.Parse(Regex.Match(id, "[0-9]{4}").Groups[0].Value);
+
+                // split by study type
+                if (observational.Contains(id))
+                    observationalStudies.Add($"{nameOnly},{year}");
+                else
+                    rctStudies.Add($"{nameOnly},{year}");
+            }
+
+            using (var writer = new StreamWriter(observationVsRCTOutput))
+            {
+                foreach (var item in observationalStudies)
+                    writer.WriteLine($"{item},observational");
+                foreach (var item in rctStudies)
+                    writer.WriteLine($"{item},rct");
+            }
+        }
+        public static void Process_GRADE()
+        {
+            foreach (var operation in new[] { "THA", "TKA" }) {
+                var thaTkaData = ParseThaTkaData().ToList();
+                
+                var revmanInput = @"C:\Users\marcozo\OneDrive\Cris\201909 HSS Consensus PNB\PNB versus no PNB 20200827 Update.rm5";
+                var revmanOutput = @"C:\Users\marcozo\OneDrive\Cris\201909 HSS Consensus PNB\PNB versus no PNB 20201015 GRADE " + operation + ".rm5";
+
+                var revmanXml = XDocument.Parse(File.ReadAllText(revmanInput));
+
+                var subgroup = new List<Tuple<string, string>>();
+
+                var observational = revmanXml.XPathSelectElements("//QUALITY_ITEM")
+                    .Where(qualityItem => qualityItem.XPathSelectElement("./NAME").Value ==
+                        "Observational Study: Failure to develop and apply appropriate eligibility criteria")
+                    .SelectMany(qualityItem =>
+                        qualityItem.XPathSelectElements(".//QUALITY_ITEM_DATA_ENTRY")
+                            .Select(e => e.Attribute("STUDY_ID").Value))
+                    .ToHashSet();
+
+                foreach (var study in revmanXml.XPathSelectElements("//STUDY"))
+                {
+                    var id = study.Attribute("ID").Value;
+                    if (!(id.StartsWith("STD-H-") || id.StartsWith("STD-K-")))
+                        continue;
+
+                    var nameOnly = Regex.Match(id, "-([^-]+-[0-9a-z]+$)").Groups[1].Value;
+                    var newId = "STD-" + nameOnly;
+                    var year = int.Parse(Regex.Match(id, "[0-9]{4}").Groups[0].Value);
+
+                    // split by study type
+                    if (id.Contains("-H-"))
+                    {
+                        subgroup.Add(Tuple.Create(newId, "THA"));
+                    }
+                    if (id.Contains("-K-"))
+                    {
+                        subgroup.Add(Tuple.Create(newId, "TKA"));
+                    }
+
+                    study.SetAttributeValue("ID", newId);
+                    study.SetAttributeValue("NAME", newId.Replace("-", " ").Substring(4));
+
+                    // patch studyId
+                    foreach (var studyId in revmanXml.XPathSelectElements($"//*[@STUDY_ID = '{id}']"))
+                        studyId.SetAttributeValue("STUDY_ID", newId);
+                }
+
+                subgroup = subgroup.Distinct()
+                    .Where(t => t.Item2 == operation)
+                    .ToList();
+
+                int outcomeCount = 128;
+
+                var cleanOutcomes = new List<XElement>();
+
+                // introduce subgroups
+                foreach (var type in new[] { "DICH", "CONT" })
+                {
+                    var newOutcomes = new List<XElement>();
+
+                    cleanOutcomes.AddRange(revmanXml.XPathSelectElements($"//{type}_OUTCOME"));
+                    {
+                        // THA + TKA, THA, TK,...
+                        {
+                            foreach (var cleanOutcome in revmanXml.XPathSelectElements($"//{type}_OUTCOME"))
+                            {
+                                var outcome = new XElement(cleanOutcome);
+                                outcomeCount++;
+                                outcome.Attribute("ID").Value = $"CMP-001.{outcomeCount:D2}";
+
+                                var data = outcome.XPathSelectElements($"{type}_DATA").ToList();
+
+                                var outcomeName = outcome.XPathSelectElement("./NAME").Value;
+                                outcome.XPathSelectElement("./NAME").Value = outcomeName;
+
+                                if (data.Count == 0)
+                                    continue;
+
+                                foreach (var d in data)
+                                    d.Remove();
+
+                                foreach (var g in subgroup.GroupBy(t => t.Item2))
+                                {
+                                    var filteredData = data.Where(e =>
+                                    {
+                                        if (type == "CONT")
+                                        {
+                                            // make sure the study ID is in the group list
+                                            return g.Any(t => t.Item1 == e.Attribute("STUDY_ID").Value);
+                                        }
+
+                                        var events1 = int.Parse(e.Attribute("EVENTS_1").Value);
+                                        var events2 = int.Parse(e.Attribute("EVENTS_2").Value);
+                                        var total1 = int.Parse(e.Attribute("TOTAL_1").Value);
+                                        var total2 = int.Parse(e.Attribute("TOTAL_2").Value);
+                                        var s1 = thaTkaData.Where(a => e.Attribute("STUDY_ID").Value.Contains(a.Study)).ToList();
+                                        var s2 = s1.Where(a => a.Outcome == outcomeName).ToList();
+                                        var s3 = s2.Where(a => (g.Key.Contains("THA") && a.Hip) ||
+                                                                (g.Key.Contains("TKA") && a.Knee))
+                                                                .ToList();
+                                        var s4 = s3.Where(a => a.PNB == events1 && a.PNB_Total == total1 &&
+                                                                a.NO_PNB == events2 && a.NO_PNB_Total == total2).ToList();
+
+                                        var matches = s4.Count();
+                                        if (matches > 1)
+                                            throw new Exception("Multiple matches");
+
+                                        return matches > 0;
+                                    }).ToList();
+
+                                    foreach (var d in filteredData)
+                                        outcome.Add(d);
+                                }
+
+                                // don't add if we don't have any data
+                                if (outcome.XPathSelectElements($".//{type}_DATA").Count() > 0)
+                                    newOutcomes.Add(outcome);
+                            }
+                        }
+                    }
+
+                    foreach (var newOutcome in newOutcomes)
+                        revmanXml.XPathSelectElements($"//{type}_OUTCOME").First().AddAfterSelf(newOutcome);
+                }
+
+                foreach (var cleanOutcome in cleanOutcomes)
+                {
+                    // update the name for the source outcome
+                    //cleanOutcome.XPathSelectElement("./NAME").Value = cleanOutcome.XPathSelectElement("./NAME").Value + " | Total";
+                    cleanOutcome.Remove();
+                }
+
+                revmanXml.Save(revmanOutput);
+            }
+        }
+
+        public static void Process_THA_TKA()
+        {
+            Process_THA_TKA("OR");
+            Process_THA_TKA("RR");
+        }
+
+
+        public static void Process_THA_TKA(string effect_measure)
+        {
+            var thaTkaData = ParseThaTkaData().ToList();
+
+            // Note: this has swapped Danninger values corrected!
+            var revmanInput = @"C:\Users\marcozo\OneDrive\Cris\201909 HSS Consensus PNB\PNB versus no PNB 20200827 Update.rm5";
+            var revmanOutput = $@"C:\Users\marcozo\OneDrive\Cris\201909 HSS Consensus PNB\PNB versus no PNB 20201015 all {effect_measure}.rm5";
             //var revmanInput = @"C:\Users\marcozo\OneDrive\Cris\201909 HSS Consensus PNB\PNB versus no PNB 20191102 clean.rm5";
             //var revmanOutput = @"C:\Users\marcozo\OneDrive\Cris\201909 HSS Consensus PNB\PNB versus no PNB 20191102 all.rm5";
 
@@ -70,7 +262,10 @@ namespace RevManCovidenceValidation
             {
                 var id = study.Attribute("ID").Value;
                 if (!(id.StartsWith("STD-H-") || id.StartsWith("STD-K-")))
+                {
+                    Console.WriteLine($"Skipping {id}");
                     continue;
+                }
 
                 var nameOnly = Regex.Match(id, "-([^-]+-[0-9a-z]+$)").Groups[1].Value;
                 var newId = "STD-" + nameOnly;
@@ -98,23 +293,29 @@ namespace RevManCovidenceValidation
                     losPrefix = "LOS " + (minimumLos < 3 ? "-3" : "3-") + " ";
                 }
 
+                bool assignedToSubgroup = false;
+
                 if (id.Contains("-H-"))
                 {
                     subgroup.Add(Tuple.Create(newId, "THA" + postfix));
-                    subgroup.Add(Tuple.Create(newId, yearPrefix + "THA"));
-                    if (losPrefix != null)
-                       subgroup.Add(Tuple.Create(newId, losPrefix + "THA"));
+                    //subgroup.Add(Tuple.Create(newId, yearPrefix + "THA"));
+                    //if (losPrefix != null)
+                    //   subgroup.Add(Tuple.Create(newId, losPrefix + "THA"));
+
+                    assignedToSubgroup = true;
                 }
                 if (id.Contains("-K-"))
                 {
                     subgroup.Add(Tuple.Create(newId, "TKA" + postfix));
-                    subgroup.Add(Tuple.Create(newId, yearPrefix + "TKA"));
-                    if (losPrefix != null)
-                        subgroup.Add(Tuple.Create(newId, losPrefix + "TKA"));
+                    //subgroup.Add(Tuple.Create(newId, yearPrefix + "TKA"));
+                    //if (losPrefix != null)
+                    //    subgroup.Add(Tuple.Create(newId, losPrefix + "TKA"));
+
+                    assignedToSubgroup = true;
                 }
 
-
-
+                if (!assignedToSubgroup)
+                    Console.Out.WriteLine($"Failed to assign study to subgroup: {id}");
 
                 // H K Type multiple Comp CNB SA or GA vs SA or GA vs X Memtsoudis 2016
 
@@ -122,7 +323,8 @@ namespace RevManCovidenceValidation
                 var left = match.Groups[1].Value;
                 var right = match.Groups[2].Value + match.Groups[3].Value;
 
-                // Infiltration groups
+                // 
+                //// Infiltration groups
                 //if (Regex.Match(left, "(LIA|PAI)").Success && Regex.Match(right, "(LIA|PAI)").Success)
                 //    subgroup.Add(Tuple.Create(newId, "PNB + infiltration vs infiltration" + postfix));
                 //else
@@ -150,14 +352,14 @@ namespace RevManCovidenceValidation
                     subgroup.Add(Tuple.Create(newId, "GA"));
 
                     if (neuraxial.All(n => !interventions.Contains(n)))
-                       subgroup.Add(Tuple.Create(newId, "GA only"));
+                        subgroup.Add(Tuple.Create(newId, "GA only"));
 
                     if (neuraxial.Any(n => interventions.Contains(n)))
-                       subgroup.Add(Tuple.Create(newId, "GA + NA"));
+                        subgroup.Add(Tuple.Create(newId, "GA + NA"));
                 }
                 else
                     if (neuraxial.Any(n => interventions.Contains(n)))
-                        subgroup.Add(Tuple.Create(newId, "NA only"));
+                    subgroup.Add(Tuple.Create(newId, "NA only"));
 
                 if (interventions.Contains("VARIOUS"))
                 {
@@ -205,16 +407,16 @@ namespace RevManCovidenceValidation
                             "TKA"
                         }
                     },
-                    //new
-                    //{
-                    //    Name = "Infiltration",
-                    //    Prefixes = new [] {
-                    //        "PNB + infiltration vs infiltration",
-                    //        "PNB + infiltration vs no-infiltration",
-                    //        "PNB vs infiltration",
-                    //        "PNB vs no-infiltration"
-                    //    }
-                    //},
+                    new
+                    {
+                        Name = "Infiltration",
+                        Prefixes = new [] {
+                            "PNB + infiltration vs infiltration",
+                            "PNB + infiltration vs no-infiltration",
+                            "PNB vs infiltration",
+                            "PNB vs no-infiltration"
+                        }
+                    },
                     new
                     {
                         Name = "GA/NA",
@@ -300,13 +502,23 @@ namespace RevManCovidenceValidation
                                     var filteredData = data.Where(e =>
                                     {
                                         if (type == "CONT")
-                                            return true;
+                                        {
+                                            // make sure the study ID is in the group list
+                                            return g.Any(t => t.Item1 == e.Attribute("STUDY_ID").Value);
+                                        }
 
+                                        var studyId = e.Attribute("STUDY_ID").Value;
                                         var events1 = int.Parse(e.Attribute("EVENTS_1").Value);
                                         var events2 = int.Parse(e.Attribute("EVENTS_2").Value);
                                         var total1 = int.Parse(e.Attribute("TOTAL_1").Value);
                                         var total2 = int.Parse(e.Attribute("TOTAL_2").Value);
-                                        var s1 = thaTkaData.Where(a => e.Attribute("STUDY_ID").Value.Contains(a.Study)).ToList();
+                                        var s1 = thaTkaData.Where(a => studyId.Contains(a.Study)).ToList();
+
+                                        if (s1.Count == 0)
+                                        {
+                                            Console.WriteLine($"THA/TKA classification missing:\t{outcomeName}\t{events1}\t{total1}\t{events2}\t{total2}\t{studyId.Replace('-', ' ').Substring(4)}");
+                                        }
+
                                         var s2 = s1.Where(a => a.Outcome == outcomeName).ToList();
                                         var s3 = s2.Where(a => (g.Key.Contains("THA") && a.Hip) || 
                                                                (g.Key.Contains("TKA") && a.Knee))
@@ -349,9 +561,135 @@ namespace RevManCovidenceValidation
             {
                 // update the name for the source outcome
                 cleanOutcome.XPathSelectElement("./NAME").Value = cleanOutcome.XPathSelectElement("./NAME").Value + " | Total";
+
+                // switch between OR/RR
             }
 
+            foreach (var dichOutcome in revmanXml.XPathSelectElements("//DICH_OUTCOME"))
+                dichOutcome.Attribute("EFFECT_MEASURE").Value = effect_measure;
+
             revmanXml.Save(revmanOutput);
+        }
+
+        public static void Process_CSV()
+        {
+            var thaTkaData = ParseThaTkaData().ToList();
+
+            // Note: this has swapped Danninger values corrected!
+            var revmanInput = @"C:\Users\marcozo\OneDrive\Cris\201909 HSS Consensus PNB\PNB versus no PNB 20200827 Update.rm5";
+            var csvDichOutput = $@"C:\Users\marcozo\OneDrive\Cris\201909 HSS Consensus PNB\PNB versus no PNB 20210202 Dich.csv";
+            var csvContOutput = $@"C:\Users\marcozo\OneDrive\Cris\201909 HSS Consensus PNB\PNB versus no PNB 20210202 Cont.csv";
+
+            var revmanXml = XDocument.Parse(File.ReadAllText(revmanInput));
+
+            var observational = revmanXml.XPathSelectElements("//QUALITY_ITEM")
+                .Where(qualityItem => qualityItem.XPathSelectElement("./NAME").Value ==
+                    "Observational Study: Failure to develop and apply appropriate eligibility criteria")
+                .SelectMany(qualityItem =>
+                    qualityItem.XPathSelectElements(".//QUALITY_ITEM_DATA_ENTRY")
+                        .Select(e => e.Attribute("STUDY_ID").Value))
+                .ToHashSet();
+
+            var endnoteRecords = RevManSummaryToCSV.GetEndNoteRecords();
+
+            using (var csvWriterDich = new CsvWriter(new StreamWriter(csvDichOutput)))
+            using (var csvWriterCont = new CsvWriter(new StreamWriter(csvContOutput)))
+            {
+                csvWriterDich.WriteHeader<CsvOutcomeDich>();
+                csvWriterDich.NextRecord();
+
+                csvWriterCont.WriteHeader<CsvOutcomeCont>();
+                csvWriterCont.NextRecord();
+
+                CsvOutcome output;
+
+                foreach (var type in new[] { "DICH", "CONT" })
+                {
+                    output = type == "DICH" ? (CsvOutcome)new CsvOutcomeDich() : new CsvOutcomeCont();
+
+                    foreach (var study in revmanXml.XPathSelectElements("//STUDY"))
+                    {
+                        var id = study.Attribute("ID").Value;
+                        if (!(id.StartsWith("STD-H-") || id.StartsWith("STD-K-")))
+                        {
+                            Console.WriteLine($"Skipping {id}");
+                            continue;
+                        }
+
+                        output.EndNoteStudy = RevManSummaryToCSV.GetEndNoteStudies(endnoteRecords, revmanXml, id);
+
+                        output.Study = Regex.Match(id, "-([^-]+-[0-9a-z]+$)").Groups[1].Value;
+                        output.Year = int.Parse(Regex.Match(id, "[0-9]{4}").Groups[0].Value);
+
+                        // split by study type
+                        output.StudyType = (observational.Contains(id) ? "Observational" : "RCT");
+
+                        output.THA = id.Contains("-H-");
+                        output.TKA = id.Contains("-K-");
+
+                        // H K Type multiple Comp CNB SA or GA vs SA or GA vs X Memtsoudis 2016
+
+                        var match = Regex.Match(id, "Comp-(.*)-vs-(.*)-vs-(.*)-");
+                        var left = match.Groups[1].Value;
+                        var right = match.Groups[2].Value + match.Groups[3].Value;
+
+                        var interventions = (match.Groups[1].Value + "-" + match.Groups[2].Value + "-" + match.Groups[3].Value).Split('-').ToHashSet();
+                        var neuraxial = new HashSet<string> { "SA", "EA", "CSE", "CEI" };
+
+                        // GA any(+NA maybe)
+                        // GA only(no NA)
+                        // GA + NA
+                        // NA only(no GA)
+                        output.GA = interventions.Contains("GA");
+                        output.NA = neuraxial.Any(n => interventions.Contains(n));
+
+                        if (interventions.Contains("VARIOUS"))
+                        {
+                            output.GA = true;
+                            output.NA = true;
+                        }
+
+                        foreach (var outcome in revmanXml.XPathSelectElements($"//{type}_OUTCOME"))
+                        {
+                            var data = outcome.XPathSelectElements($"{type}_DATA").ToList();
+
+                            output.Outcome = outcome.XPathSelectElement("./NAME").Value;
+
+                            if (data.Count == 0)
+                                continue;
+
+                            foreach (var dataElem in data)
+                            {
+                                output.Total1 = int.Parse(dataElem.Attribute("TOTAL_1").Value);
+                                output.Total2 = int.Parse(dataElem.Attribute("TOTAL_2").Value);
+
+                                if (type == "DICH")
+                                {
+                                    CsvOutcomeDich outputDich = (CsvOutcomeDich)output;
+
+                                    outputDich.Events1 = int.Parse(dataElem.Attribute("EVENTS_1").Value);
+                                    outputDich.Events2 = int.Parse(dataElem.Attribute("EVENTS_2").Value);
+
+                                    csvWriterDich.WriteRecord(outputDich);
+                                    csvWriterDich.NextRecord();
+                                }
+                                else
+                                {
+                                    CsvOutcomeCont outputCont = (CsvOutcomeCont)output;
+
+                                    outputCont.Mean1 = double.Parse(dataElem.Attribute("MEAN_1").Value);
+                                    outputCont.Mean2 = double.Parse(dataElem.Attribute("MEAN_2").Value);
+                                    outputCont.SD1 = double.Parse(dataElem.Attribute("SD_1").Value);
+                                    outputCont.SD2 = double.Parse(dataElem.Attribute("SD_2").Value);
+
+                                    csvWriterCont.WriteRecord(outputCont);
+                                    csvWriterCont.NextRecord();
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
 
         private static void CheckStudyData(List<XElement> before, XElement outcome)
@@ -445,6 +783,7 @@ namespace RevManCovidenceValidation
             outcome.SetAttributeValue("SUBGROUPS", "YES");
 
             var type = outcome.Name.LocalName.Equals("DICH_OUTCOME") ? "DICH" : "CONT";
+            var outcomeName = outcome.XPathSelectElement(".//NAME").Value;
 
             var outcomeId = outcome.Attribute("ID").Value;
             var subgroupCount = outcome.XPathSelectElements($"{type}_SUBGROUP").Count() + 1; 

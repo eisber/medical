@@ -17,11 +17,23 @@ namespace RevManCovidenceValidation
         static void Main(string[] args)
         {
             // RevManSummaryToCSV.ExtractOutcomes();
-            // EnrichedRevManToSubgroup.Process_THA_TKA();
-            RevManSummaryToCSV.Process();
 
+            // 2020/08/30 #1
+            // EnrichedRevManToSubgroup.Process_Observational_RCT();
 
-            //    EnrichedRevManToSubgroup.Process_Infiltration();
+            // 2020/08/30 #2
+            //EnrichedRevManToSubgroup.Process_THA_TKA();
+
+            // 2020/08/30 #1
+            //EnrichedRevManToSubgroup.Process_GRADE();
+
+            EnrichedRevManToSubgroup.Process_CSV();
+
+            // Note: re-number all to get re-calculation
+            // Note: if RevMan crashes on print (or can't re-open after save). Copy&paste the subtree into another revman file
+            // RevManSummaryToCSV.Process();
+
+            //EnrichedRevManToSubgroup.Process_Infiltration();
 
 
             //if (args.Length != 4)
@@ -51,8 +63,8 @@ namespace RevManCovidenceValidation
             //}
 
 
-            //Console.WriteLine("Press any key");
-            // Console.ReadKey();
+            Console.WriteLine("Press any key");
+            Console.ReadKey();
         }
     }
 }
