@@ -612,7 +612,7 @@ namespace RevManCovidenceValidation
                         var data = outcome.XPathSelectElements($"{type}_DATA").ToList();
                         if (data.Count == 0)
                             continue;
-                        
+
                         output.Outcome = outcome.XPathSelectElement("./NAME").Value;
 
                         foreach (var dataElem in data)
@@ -665,6 +665,29 @@ namespace RevManCovidenceValidation
 
                                 outputDich.Events1 = int.Parse(dataElem.Attribute("EVENTS_1").Value);
                                 outputDich.Events2 = int.Parse(dataElem.Attribute("EVENTS_2").Value);
+
+                                var s1 = thaTkaData.Where(a => id.Contains(a.Study)).ToList();
+
+                                if (s1.Count == 0)
+                                {
+                                    Console.WriteLine($"THA/TKA classification missing:\t{output.Outcome}");
+                                }
+
+                                var s2 = s1.Where(a => a.Outcome == output.Outcome).ToList();
+                                var s3 = s2.Where(a => (output.THA && a.Hip) ||
+                                                        (output.TKA && a.Knee))
+                                                        .ToList();
+                                var s4 = s3.Where(a => a.PNB == outputDich.Events1 && a.PNB_Total == outputDich.Total1 &&
+                                                        a.NO_PNB == outputDich.Events2 && a.NO_PNB_Total == outputDich.Total2).ToList();
+
+                                var matches = s4.Count();
+                                if (matches > 1)
+                                    throw new Exception("Multiple matches");
+                                if (matches == 1)
+                                {
+                                    outputDich.THA = s4.First().Hip;
+                                    outputDich.TKA = s4.First().Knee;
+                                }
 
                                 csvWriterDich.WriteRecord(outputDich);
                                 csvWriterDich.NextRecord();
