@@ -607,84 +607,79 @@ namespace RevManCovidenceValidation
                 {
                     output = type == "DICH" ? (CsvOutcome)new CsvOutcomeDich() : new CsvOutcomeCont();
 
-                    foreach (var study in revmanXml.XPathSelectElements("//STUDY"))
+                    foreach (var outcome in revmanXml.XPathSelectElements($"//{type}_OUTCOME"))
                     {
-                        var id = study.Attribute("ID").Value;
-                        if (!(id.StartsWith("STD-H-") || id.StartsWith("STD-K-")))
-                        {
-                            Console.WriteLine($"Skipping {id}");
+                        var data = outcome.XPathSelectElements($"{type}_DATA").ToList();
+                        if (data.Count == 0)
                             continue;
-                        }
+                        
+                        output.Outcome = outcome.XPathSelectElement("./NAME").Value;
 
-                        output.EndNoteStudy = RevManSummaryToCSV.GetEndNoteStudies(endnoteRecords, revmanXml, id);
-
-                        output.Study = Regex.Match(id, "-([^-]+-[0-9a-z]+$)").Groups[1].Value;
-                        output.Year = int.Parse(Regex.Match(id, "[0-9]{4}").Groups[0].Value);
-
-                        // split by study type
-                        output.StudyType = (observational.Contains(id) ? "Observational" : "RCT");
-
-                        output.THA = id.Contains("-H-");
-                        output.TKA = id.Contains("-K-");
-
-                        // H K Type multiple Comp CNB SA or GA vs SA or GA vs X Memtsoudis 2016
-
-                        var match = Regex.Match(id, "Comp-(.*)-vs-(.*)-vs-(.*)-");
-                        var left = match.Groups[1].Value;
-                        var right = match.Groups[2].Value + match.Groups[3].Value;
-
-                        var interventions = (match.Groups[1].Value + "-" + match.Groups[2].Value + "-" + match.Groups[3].Value).Split('-').ToHashSet();
-                        var neuraxial = new HashSet<string> { "SA", "EA", "CSE", "CEI" };
-
-                        // GA any(+NA maybe)
-                        // GA only(no NA)
-                        // GA + NA
-                        // NA only(no GA)
-                        output.GA = interventions.Contains("GA");
-                        output.NA = neuraxial.Any(n => interventions.Contains(n));
-
-                        if (interventions.Contains("VARIOUS"))
+                        foreach (var dataElem in data)
                         {
-                            output.GA = true;
-                            output.NA = true;
-                        }
-
-                        foreach (var outcome in revmanXml.XPathSelectElements($"//{type}_OUTCOME"))
-                        {
-                            var data = outcome.XPathSelectElements($"{type}_DATA").ToList();
-
-                            output.Outcome = outcome.XPathSelectElement("./NAME").Value;
-
-                            if (data.Count == 0)
-                                continue;
-
-                            foreach (var dataElem in data)
+                            var id = dataElem.Attribute("STUDY_ID").Value;
+                            if (!(id.StartsWith("STD-H-") || id.StartsWith("STD-K-")))
                             {
-                                output.Total1 = int.Parse(dataElem.Attribute("TOTAL_1").Value);
-                                output.Total2 = int.Parse(dataElem.Attribute("TOTAL_2").Value);
+                                Console.WriteLine($"Skipping {id}");
+                                continue;
+                            }
 
-                                if (type == "DICH")
-                                {
-                                    CsvOutcomeDich outputDich = (CsvOutcomeDich)output;
+                            output.EndNoteStudy = RevManSummaryToCSV.GetEndNoteStudies(endnoteRecords, revmanXml, id);
 
-                                    outputDich.Events1 = int.Parse(dataElem.Attribute("EVENTS_1").Value);
-                                    outputDich.Events2 = int.Parse(dataElem.Attribute("EVENTS_2").Value);
+                            output.Study = Regex.Match(id, "-([^-]+-[0-9a-z]+$)").Groups[1].Value;
+                            output.Year = int.Parse(Regex.Match(id, "[0-9]{4}").Groups[0].Value);
 
-                                    csvWriterDich.WriteRecord(outputDich);
-                                    csvWriterDich.NextRecord();
-                                }
-                                else
-                                {
-                                    CsvOutcomeCont outputCont = (CsvOutcomeCont)output;
+                            // split by study type
+                            output.StudyType = (observational.Contains(id) ? "Observational" : "RCT");
 
-                                    outputCont.Mean1 = double.Parse(dataElem.Attribute("MEAN_1").Value);
-                                    outputCont.Mean2 = double.Parse(dataElem.Attribute("MEAN_2").Value);
-                                    outputCont.SD1 = double.Parse(dataElem.Attribute("SD_1").Value);
-                                    outputCont.SD2 = double.Parse(dataElem.Attribute("SD_2").Value);
+                            output.THA = id.Contains("-H-");
+                            output.TKA = id.Contains("-K-");
 
-                                    csvWriterCont.WriteRecord(outputCont);
-                                    csvWriterCont.NextRecord();
-                                }
+                            // H K Type multiple Comp CNB SA or GA vs SA or GA vs X Memtsoudis 2016
+
+                            var match = Regex.Match(id, "Comp-(.*)-vs-(.*)-vs-(.*)-");
+                            var left = match.Groups[1].Value;
+                            var right = match.Groups[2].Value + match.Groups[3].Value;
+
+                            var interventions = (match.Groups[1].Value + "-" + match.Groups[2].Value + "-" + match.Groups[3].Value).Split('-').ToHashSet();
+                            var neuraxial = new HashSet<string> { "SA", "EA", "CSE", "CEI" };
+
+                            // GA any(+NA maybe)
+                            // GA only(no NA)
+                            // GA + NA
+                            // NA only(no GA)
+                            output.GA = interventions.Contains("GA");
+                            output.NA = neuraxial.Any(n => interventions.Contains(n));
+
+                            if (interventions.Contains("VARIOUS"))
+                            {
+                                output.GA = true;
+                                output.NA = true;
+                            }
+                            output.Total1 = int.Parse(dataElem.Attribute("TOTAL_1").Value);
+                            output.Total2 = int.Parse(dataElem.Attribute("TOTAL_2").Value);
+
+                            if (type == "DICH")
+                            {
+                                CsvOutcomeDich outputDich = (CsvOutcomeDich)output;
+
+                                outputDich.Events1 = int.Parse(dataElem.Attribute("EVENTS_1").Value);
+                                outputDich.Events2 = int.Parse(dataElem.Attribute("EVENTS_2").Value);
+
+                                csvWriterDich.WriteRecord(outputDich);
+                                csvWriterDich.NextRecord();
+                            }
+                            else
+                            {
+                                CsvOutcomeCont outputCont = (CsvOutcomeCont)output;
+
+                                outputCont.Mean1 = double.Parse(dataElem.Attribute("MEAN_1").Value);
+                                outputCont.Mean2 = double.Parse(dataElem.Attribute("MEAN_2").Value);
+                                outputCont.SD1 = double.Parse(dataElem.Attribute("SD_1").Value);
+                                outputCont.SD2 = double.Parse(dataElem.Attribute("SD_2").Value);
+
+                                csvWriterCont.WriteRecord(outputCont);
+                                csvWriterCont.NextRecord();
                             }
                         }
                     }
